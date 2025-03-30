@@ -26,6 +26,7 @@ public class Scenario {
 
     private final List<ScenarioElement> myElements = new LinkedList<>();
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    private boolean isPlaying = false;
 
     /**
      * Ajouter un effect au scenario.
@@ -34,7 +35,15 @@ public class Scenario {
      * @param repeats le nombre de répétitions pour cet effet
      */
     public void addEffect(Effect e, int repeats) {
-        myElements.add(new ScenarioElement(e, repeats));
+        lock.writeLock().lock();
+        try {
+            if (isPlaying) {
+                throw new IllegalStateException("Cannot modify a scenario while it is playing.");
+            }
+            myElements.add(new ScenarioElement(e, repeats));
+        } finally {
+            lock.writeLock().unlock();
+        }
     }
 
     /**
@@ -42,19 +51,26 @@ public class Scenario {
      *
      * @param b le bandeau ou s'afficher.
      */
-    public void playOn(Bandeau b) {
-        Thread t = new Thread() {
-            @Override
-            public void run() {
+    public void playOn(BandeauVerrouillable b) {
+        Thread t = new Thread(() -> {
+            if (!b.tryLock()) {
+                System.out.println("Bandeau is already in use.");
+                return;
+            }
+            try {
                 lock.readLock().lock();
+                isPlaying = true;
                 for (ScenarioElement element : myElements) {
                     for (int repeats = 0; repeats < element.repeats; repeats++) {
                         element.effect.playOn(b);
                     }
                 }
+            } finally {
+                isPlaying = false;
                 lock.readLock().unlock();
+                b.unlock();
             }
-        };
+        });
         t.start();
     }
 }
